@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-Rapsberry Pi Projects For Dummies: temperate logger to google docs spreadsheet
+Rapsberry Pi Projects For Dummies: temperature logger to google docs spreadsheet
 For the Raspberry Pi
 """
 import subprocess 
