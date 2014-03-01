@@ -13,7 +13,7 @@ client_id       = ""
 client_secret   = ""
 spreadsheet_key = ""
 fahrenheit      = True
-headings = ["Temperature", "Date", "UOM"] #column headings can't have spaces
+headings = ["Temperature", "Date", "Unit"] #column headings can't have spaces
 
 def main():
         # This is the main routine of the program
