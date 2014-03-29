@@ -10,12 +10,11 @@ function DisplayTemperatureLog($num_rows_to_display){
                          "password", 
                          "sensor_logs");
 
-	if ($mysqli->connect_errno) {
+    if ($mysqli->connect_errno) {
         echo "Failed to connect to MySQL: (" . 
         $mysqli->connect_errno . 
              ") " . $mysqli->connect_error;
     }
-    
     $sql = "SELECT * FROM temperature_log ORDER BY date DESC";
     $res = $mysqli->query($sql);
     if (!$res) {
