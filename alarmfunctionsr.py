@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-alarmfunctionsr.py 2.00 PrivateEyePi Common Functions
+alarmfunctionsr.py 9.00 PrivateEyePi Common Functions
 ---------------------------------------------------------------------------------
  Works conjunction with host at www.privateeyepi.com                              
  Visit projects.privateeyepi.com for full details                                 
@@ -15,18 +15,25 @@ alarmfunctionsr.py 2.00 PrivateEyePi Common Functions
                                                                                   
  Revision History                                                                  
  V1.00 - Release
- V2.00 - Incorporation of rules functionality                                                             
+ V2.00 - Incorporation of rules functionality
+ V9.00 - Moving all versions to 9 for the rules release
+ V9.01 - Added the PHOTO rule to send a photo as a rule action                                                             
  -----------------------------------------------------------------------------------
 """
 
 import globals
 import urllib2
 import smtplib
+import serial
 import time
 import sys
 import thread
 import RPi.GPIO as GPIO
+import os, glob, time, operator
 from email.mime.text import MIMEText
+from email.mime.application import MIMEApplication
+from email.mime.multipart import MIMEMultipart
+from time import sleep
     
 def find_all(a_str, sub):
         start = 0
@@ -46,6 +53,17 @@ def isNumber(x):
                 return False
         return True
 
+def get_latest_photo(files):
+    lt = operator.lt
+    if not files:
+        return None
+    now = time.time()
+    latest = files[0], now - os.path.getctime(files[0])
+    for f in files[1:]:
+        age = now - os.path.getctime(f)
+        if lt(age, latest[1]):
+            latest = f, age
+    return latest[0]
 
 def UpdateHostThread(function,opcode):
         try:
@@ -55,7 +73,7 @@ def UpdateHostThread(function,opcode):
 
 def UpdateHost(function,opcode):
         # Sends data to the server 
-        script_path = "https://www.privateeyepi.com/rules/beta/alarmhostr.php?u="+globals.user+"&p="+globals.password+"&function="+str(function)
+        script_path = "https://www.privateeyepi.com/alarmhostr.php?u="+globals.user+"&p="+globals.password+"&function="+str(function)
         
         i=0
         for x in opcode:
@@ -96,7 +114,10 @@ def ProcessActions(ActionList):
         FalseInd=True
         for x in ActionList:
             if x[0]=="/EMAIL":
-                    SendEmailAlertFromRule(x[1], x[2])
+                    SendEmailAlertFromRule(x[1], x[2],0)
+                    x.remove
+            if x[0]=="/SEMAIL":
+                    SendEmailAlert(x[1])
                     x.remove
             if x[0]=="/CHIME":
                     StartChimeThread()
@@ -108,6 +129,21 @@ def ProcessActions(ActionList):
             if x[0]=="/SIREN":
                     StartSirenThread(x[2])
                     x.remove
+            if x[0]=="/PHOTO":
+                    SendEmailAlertFromRule(x[1], x[2],1)
+                    x.remove
+            if x[0]=="/RELAYON":
+                    SwitchRelay(1)
+                    x.remove
+            if x[0]=="/RELAYOFF":
+                    SwitchRelay(0)
+                    x.remove
+            if x[0]=="/WRELAYON":
+                    SwitchRFRelay(1)
+                    x.remove
+            if x[0]=="/WRELAYOFF":
+                    SwitchRFRelay(0)
+                    x.remove
         return(FalseInd)
 
 def StartSirenThread(Zone):
@@ -116,6 +152,30 @@ def StartSirenThread(Zone):
         except:
                 print "Error: unable to start thread"
 
+def SwitchRelay(onoff):
+        GPIO.setmode(GPIO.BOARD)
+        GPIO.setup(globals.RelayPin, GPIO.OUT) 
+        GPIO.output(globals.RelayPin,onoff)
+        
+def SwitchRFRelay(onoff):
+        # declare to variables, holding the com port we wish to talk to and the speed
+        port = '/dev/ttyAMA0'
+        baud = 9600
+        
+        # open a serial connection using the variables above
+        ser = serial.Serial(port=port, baudrate=baud)
+        
+        # wait for a moment before doing anything else
+        sleep(0.2)
+        
+        for i in range(0,3):
+                if (onoff==True):       
+                        ser.write('a{}RELAYAON-'.format(globals.WRelayPin))
+                else:
+                        ser.write('a{}RELAYAOFF'.format(globals.WRelayPin))
+                time.sleep(2)
+        ser.close
+        
 def Siren(Zone):
         GPIO.setmode(GPIO.BOARD)
         if globals.UseSiren == True:
@@ -136,7 +196,7 @@ def Siren(Zone):
         globals.SirenStartTime = time.time()
         if globals.PrintToScreen: print "Siren Activated"
         while time.time() < globals.SirenStartTime + globals.SirenTimeout:
-                time.sleep(globals.SirenPollInterval)
+                time.sleep(5)
                 if CheckForSirenDeactivation(Zone) == True:
                         break
         GPIO.output(globals.SirenGPIOPin,False)
@@ -159,15 +219,15 @@ def StartChimeThread():
 def SoundChime():
         if globals.ChimeDuration>0:
                 GPIO.setmode(GPIO.BOARD)
-                GPIO.setup(globals.SirenGPIOPin, GPIO.OUT) #Siren pin setup
-                GPIO.output(globals.SirenGPIOPin,True)
+                GPIO.setup(globals.ChimeGPIOPin, GPIO.OUT) #Siren pin setup
+                GPIO.output(globals.ChimeGPIOPin,True)
                 time.sleep(globals.ChimeDuration)
-                GPIO.output(globals.SirenGPIOPin,False)
+                GPIO.output(globals.ChimeGPIOPin,False)
                     
 def GetDataFromHost(function,opcode):
 # Request data and receive reply (request/reply) from the server
  
-        script_path = "https://www.privateeyepi.com/rules/beta/alarmhostr.php?u="+globals.user+"&p="+globals.password+"&function="+str(function)
+        script_path = "https://www.privateeyepi.com/alarmhostr.php?u="+globals.user+"&p="+globals.password+"&function="+str(function)
         
         i=0
         for x in opcode:
@@ -247,24 +307,24 @@ def BuildMessageFromRule(SensorNumber, smartruleid):
         if RecordSet[i][0]==10:
             messagestr=messagestr+"Hour Of Day is between " + str(RecordSet[i][1]) + " and " + str(RecordSet[i][2])
         if RecordSet[i][0]==11:
-            messagestr=messagestr+"SmartAlert"
+            messagestr=messagestr+"Where secondary sensor value (" + str(RecordSet[i][6]) + ") is between " + str(RecordSet[i][1]) + " " + str(RecordSet[i][2])
         if i<numrows-1:
             messagestr=messagestr + " AND "    
     return messagestr
 
-def SendEmailAlertFromRule(ruleid, SensorNumber):
+def SendEmailAlertFromRule(ruleid, SensorNumber, photo):
         try:
-                thread.start_new_thread(SendEmailAlertThread, (SensorNumber, ruleid, True, ) )
+                thread.start_new_thread(SendEmailAlertThread, (SensorNumber, ruleid, True, photo, ) )
         except:
                 print "Error: unable to start thread"
 
 def SendEmailAlert(SensorNumber):
         try:
-                thread.start_new_thread(SendEmailAlertThread, (SensorNumber,0 , False, ) )
+                thread.start_new_thread(SendEmailAlertThread, (SensorNumber,0 , False, False) )
         except:
                 print "Error: unable to start thread"
 
-def SendEmailAlertThread(SensorNumber, smartruleid, ruleind):
+def SendEmailAlertThread(SensorNumber, smartruleid, ruleind, photo):
     
         # Get the email addresses that you configured on the server
         RecordSet = GetDataFromHost(5,[0])
@@ -277,23 +337,57 @@ def SendEmailAlertThread(SensorNumber, smartruleid, ruleind):
                 return
         
         if ruleind:
-                msg = MIMEText(BuildMessageFromRule(SensorNumber, smartruleid))
+                msgtext = BuildMessageFromRule(SensorNumber, smartruleid)
         else:
-                msg = MIMEText(BuildMessage(SensorNumber))
+                msgtext = BuildMessage(SensorNumber)
                 
         for i in range(numrows):
                 # Define email addresses to use
                 addr_to   = RecordSet[i][0]
                 addr_from = globals.smtp_user #Or change to another valid email recognized under your account by your ISP      
                 # Construct email
+                
+                if (photo==1):
+                        files = 0
+                        files = glob.glob(globals.photopath)
+                        latestphoto = get_latest_photo(files)
+                        msg = MIMEMultipart()
+                else:
+                        msg = MIMEText(msgtext)
+                
                 msg['To'] = addr_to
                 msg['From'] = addr_from
                 msg['Subject'] = 'Alarm Notification' #Configure to whatever subject line you want
                 
+                #attach photo
+                if (photo==1):
+                        msg.preamble = 'Multipart message.\n'  
+                        part = MIMEText(msgtext) 
+                        msg.attach(part)
+                        part = MIMEApplication(open(latestphoto,"rb").read())
+                        part.add_header('Content-Disposition', 'attachment', filename=latestphoto)
+                        msg.attach(part)
+                
                 # Send the message via an SMTP server
-                s = smtplib.SMTP(globals.smtp_server)
+                
+                #Option 1 - No Encryption
+                if globals.email_type==1:
+                        s = smtplib.SMTP(globals.smtp_server)
+                elif globals.email_type==2:
+                #Option 2 - SSL
+                        s = smtplib.SMTP_SSL(globals.smtp_server, 465)
+                elif globals.email_type==3:
+                #Option 3 - TLS
+                        s = smtplib.SMTP(globals.smtp_server,587)
+                        s.ehlo()
+                        s.starttls()
+                        s.ehlo()
+                else:
+                        s = smtplib.SMTP(globals.smtp_server)
+                        
+                
                 s.login(globals.smtp_user,globals.smtp_pass)
-                s.sendmail(addr_from, addr_to, msg.as_string())
+                s.sendmail(addr_from, addr_to, msg.as_string()) 
                 s.quit()
                 if globals.PrintToScreen: print msg;
 
@@ -320,7 +414,21 @@ def SendCustomEmail(msgText, msgSubject):
                 msg['Subject'] = msgSubject #Configure to whatever subject line you want
                 
                 # Send the message via an SMTP server
-                s = smtplib.SMTP(globals.smtp_server)
+                #Option 1 - No Encryption
+                if globals.email_type==1:
+                        s = smtplib.SMTP(globals.smtp_server)
+                elif globals.email_type==2:
+                #Option 2 - SSL
+                        s = smtplib.SMTP_SSL(globals.smtp_server, 465)
+                elif globals.email_type==3:
+                #Option 3 - TLS
+                        s = smtplib.SMTP(globals.smtp_server,587)
+                        s.ehlo()
+                        s.starttls()
+                        s.ehlo()
+                else:
+                        s = smtplib.SMTP(globals.smtp_server)
+                        
                 s.login(globals.smtp_user,globals.smtp_pass)
                 s.sendmail(addr_from, addr_to, msg.as_string())
                 s.quit()
