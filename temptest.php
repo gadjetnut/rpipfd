@@ -1,5 +1,5 @@
 <!--
-Rapsberry Pi Projects For Dummies: test program to display the temperature log
+Raspberry Pi Projects For Dummies: test program to display the temperature log
 For the Raspberry Pi
 -->
 
